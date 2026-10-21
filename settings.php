@@ -1,0 +1,11 @@
+<?php
+require 'config.php';wajib_login();$message='';$messageType='success';
+if($_SERVER['REQUEST_METHOD']==='POST'){
+  $nama=trim($_POST['nama']??'');
+  if($nama!==''){$st=$pdo->prepare("UPDATE users SET nama=? WHERE id=?");$st->execute([$nama,$_SESSION['user']['id']]);$_SESSION['user']['nama']=$nama;$message='Profil berhasil diperbarui.';}
+  if(!empty($_POST['password_baru'])){if($_POST['password_baru']===$_POST['konfirmasi']){$st=$pdo->prepare("UPDATE users SET password=? WHERE id=?");$st->execute([password_hash($_POST['password_baru'],PASSWORD_DEFAULT),$_SESSION['user']['id']]);$message='Profil dan password berhasil diperbarui.';}else{$message=$message!==''?'Nama berhasil diperbarui, tetapi konfirmasi password tidak sama.':'Konfirmasi password tidak sama.';$messageType='error';}}
+  if($message===''){$message='Tidak ada perubahan yang disimpan.';$messageType='error';}
+}
+$pageTitle='Pengaturan Profil';$st=$pdo->prepare("SELECT * FROM users WHERE id=?");$st->execute([$_SESSION['user']['id']]);$u=$st->fetch();require 'includes/header.php'; ?>
+<div class="grid-two"><section class="panel"><div class="profile-head"><div class="avatar">👤</div><div><h3><?= e($u['nama']) ?></h3><p class="muted"><?= e($u['username']) ?> · <?= e(ucfirst($u['role'])) ?></p></div></div><?php if($message): ?><div class="alert <?= e($messageType) ?>"><?= e($message) ?></div><?php endif; ?><form method="post"><label>Nama Lengkap</label><input name="nama" value="<?= e($u['nama']) ?>" required><label>Username</label><input value="<?= e($u['username']) ?>" disabled><label>Password Baru (opsional)</label><input type="password" name="password_baru" minlength="6"><label>Konfirmasi Password Baru</label><input type="password" name="konfirmasi" minlength="6"><button class="btn gold">Simpan Perubahan</button></form></section><section class="panel"><h3>Informasi Akun</h3><div class="info-row"><span>Nama</span><b><?= e($u['nama']) ?></b></div><div class="info-row"><span>Role</span><b><?= e(ucfirst($u['role'])) ?></b></div><div class="info-row"><span>Username</span><b><?= e($u['username']) ?></b></div><div class="info-row"><span>Dibuat</span><b><?= e($u['created_at']) ?></b></div></section></div>
+<?php require 'includes/footer.php'; ?>
