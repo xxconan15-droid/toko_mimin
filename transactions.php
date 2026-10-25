@@ -204,10 +204,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 if ($stockEditError === '' && $currentCapital + $purchaseCost > 9999999999.99) {
                     $stockEditError = 'Total modal stok melebihi batas yang diizinkan.';
                 }
+                if ($stockEditError === '') {
+                    $averagePurchasePrice = round(
+                        ($currentCapital + $purchaseCost) / ((float)$product['stok'] + $stockAddition),
+                        2
+                    );
+                    if (!is_finite($averagePurchasePrice) || $averagePurchasePrice > 9999999999.99) {
+                        $stockEditError = 'Harga beli rata-rata stok melebihi batas yang diizinkan.';
+                    }
+                }
             }
             if ($stockEditError === '') {
-                $stmt = $pdo->prepare("UPDATE products SET modal_total=?, stok=stok+? WHERE id=?");
-                $stmt->execute([$currentCapital + $purchaseCost, $stockAddition, $id]);
+                $stmt = $pdo->prepare("UPDATE products SET modal_total=?, harga_beli=?, stok=stok+? WHERE id=?");
+                $stmt->execute([$currentCapital + $purchaseCost, $averagePurchasePrice, $stockAddition, $id]);
                 $pdo->commit();
                 $actionNotice = 'Stok ' . $product['nama'] . ' berhasil ditambahkan.';
             } else {
@@ -459,7 +468,7 @@ require 'includes/header.php';
 <?php if ($actionNotice !== ''): ?><div class="alert info"><?= e($actionNotice) ?></div><?php endif; ?>
 <div class="pos-layout"><section class="panel"><div class="panel-head"><h3>Pilih Barang</h3><span class="muted">Klik tambah untuk memasukkan ke keranjang</span></div><div class="product-search-row"><input id="filterProduct" class="filter-input" placeholder="Cari produk..." aria-label="Cari produk"><button class="btn light barcode-scan-button" type="button" id="open-barcode-scanner" aria-label="Pindai barcode dengan kamera" title="Pindai barcode dengan kamera"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M3 3h7v7H3V3Zm2 2v3h3V5H5Zm9-2h7v7h-7V3Zm2 2v3h3V5h-3ZM3 14h7v7H3v-7Zm2 2v3h3v-3H5Zm9-2h2v2h-2v-2Zm3 0h3v2h-3v-2Zm-3 4h2v3h-2v-3Zm4-1h2v1h1v2h-3v-3Zm-4-1h1v1h-1v-1Z"/></svg></button></div><div class="product-grid" id="productGrid">
 <?php foreach ($products as $product): $packSize=max(1,(int)($product['isi_per_pack']??1)); $containerUnit=$product['satuan']??'pcs'; $isBulk=in_array($containerUnit,['pack','dus','sachet','box'],true); $isKg=$containerUnit==='kg'; $packs=$isBulk?intdiv((int)$product['stok'],$packSize):0; $loose=$isBulk?(int)$product['stok']%$packSize:(int)$product['stok']; $productPromos=$getProductPromos((int)$product['id']); [$salePrice,$saleDiscount]=$discountedUnitPrice((float)$product['harga'],$productPromos); [$packSalePrice,$packSaleDiscount]=$discountedUnitPrice((float)$product['harga_pack'],$productPromos); ?>
-<article class="product-card" data-name="<?= e(strtolower($product['nama'])) ?>" data-barcode="<?= e((string)($product['barcode']??'')) ?>" data-barcode-pcs="<?= e((string)($product['barcode_pcs']??'')) ?>"><div class="product-emoji">📦</div><b><?= e($product['nama']) ?></b>
+<article class="product-card" data-name="<?= e(strtolower($product['nama'])) ?>" data-barcode="<?= e((string)($product['barcode']??'')) ?>" data-barcode-pcs="<?= e((string)($product['barcode_pcs']??'')) ?>" data-barcode-unit="<?= e($containerUnit) ?>"><div class="product-emoji">📦</div><b><?= e($product['nama']) ?></b>
 <?php if ($isBulk): ?>
 <small>Isi <?= $packSize ?> pcs/<?= e($containerUnit) ?> · Stok <?= $packs ?> <?= e($containerUnit) ?><?php if($loose>0): ?> + <?= $loose ?> pcs<?php endif; ?></small>
 <strong><?php if($packSaleDiscount>0): ?><del class="promo-original-price"><?= rupiah($product['harga_pack']) ?></del> <span class="promo-sale-price"><?= rupiah($packSalePrice) ?></span><?php else: ?><?= rupiah($product['harga_pack']) ?><?php endif; ?> / <?= e($containerUnit) ?><br><small><?php if($saleDiscount>0): ?><del class="promo-original-price"><?= rupiah($product['harga']) ?></del> <span class="promo-sale-price"><?= rupiah($salePrice) ?></span><?php else: ?><?= rupiah($product['harga']) ?><?php endif; ?> / pcs</small><?php if($productPromos): ?><small class="promo-active-label">Promo aktif</small><?php endif; ?></strong>
@@ -617,31 +626,67 @@ let hardwareBarcodeBuffer = '';
 let hardwareBarcodeLastKeyAt = 0;
 let hardwareBarcodeInput = null;
 let hardwareBarcodeInputValue = '';
-document.addEventListener('keydown', (event) => {
-    if (event.key === 'Enter') {
-        const scannedCode = hardwareBarcodeBuffer.trim().toLocaleLowerCase();
-        const scanWasFast = hardwareBarcodeBuffer.length >= 4
-            && Date.now() - hardwareBarcodeLastKeyAt <= 100;
-        hardwareBarcodeBuffer = '';
-        hardwareBarcodeLastKeyAt = 0;
-        if (!scanWasFast) return;
-        const productCard = Array.from(document.querySelectorAll('.product-card')).find((card) =>
-            [card.dataset.barcode, card.dataset.barcodePcs].some((code) =>
-                code && code.trim().toLocaleLowerCase() === scannedCode
-            )
-        );
-        const addForm = productCard?.querySelector('.add-form');
-        if (!addForm) return;
-        event.preventDefault();
-        if (hardwareBarcodeInput instanceof HTMLInputElement) {
-            hardwareBarcodeInput.value = hardwareBarcodeInputValue;
-            if (hardwareBarcodeInput.id === 'filterProduct') {
-                hardwareBarcodeInput.dispatchEvent(new Event('input', { bubbles: true }));
-            }
+let hardwareBarcodeTimer = null;
+let hardwareBarcodeLastCompletedAt = 0;
+const submitHardwareBarcode = (debouncedScan = false) => {
+    if (hardwareBarcodeTimer !== null) window.clearTimeout(hardwareBarcodeTimer);
+    hardwareBarcodeTimer = null;
+    const scannedCode = hardwareBarcodeBuffer.trim().toLocaleLowerCase();
+    const scanWasFast = hardwareBarcodeBuffer.length >= 4
+        && (debouncedScan || Date.now() - hardwareBarcodeLastKeyAt <= 150);
+    hardwareBarcodeBuffer = '';
+    hardwareBarcodeLastKeyAt = 0;
+    if (!scanWasFast) return false;
+    const productCard = Array.from(document.querySelectorAll('.product-card')).find((card) =>
+        [card.dataset.barcode, card.dataset.barcodePcs].some((code) =>
+            code && code.trim().toLocaleLowerCase() === scannedCode
+        )
+    );
+    const restoreSearchInput = () => {
+        if (!(hardwareBarcodeInput instanceof HTMLInputElement)) return;
+        hardwareBarcodeInput.value = hardwareBarcodeInputValue;
+        if (hardwareBarcodeInput.id === 'filterProduct') {
+            hardwareBarcodeInput.dispatchEvent(new Event('input', { bubbles: true }));
         }
-        addForm.requestSubmit();
+    };
+    const addForm = productCard?.querySelector('.add-form');
+    if (!addForm) {
+        restoreSearchInput();
+        hardwareBarcodeLastCompletedAt = Date.now();
+        if (productCard) {
+            productCard.querySelector('.stock-unavailable-button')?.click();
+        } else {
+            window.showActionNotification('Barcode tidak cocok dengan barang yang terdaftar.', 'error', false);
+        }
         hardwareBarcodeInput = null;
         hardwareBarcodeInputValue = '';
+        return true;
+    }
+    restoreSearchInput();
+    const saleUnitInput = addForm.querySelector('input[name="sale_unit"]');
+    if (saleUnitInput) {
+        const isPcsBarcode = productCard.dataset.barcodePcs?.trim().toLocaleLowerCase() === scannedCode;
+        const containerUnit = productCard.dataset.barcodeUnit;
+        saleUnitInput.value = !isPcsBarcode && ['pack', 'dus', 'sachet', 'box'].includes(containerUnit)
+            ? containerUnit
+            : 'item';
+    }
+    hardwareBarcodeLastCompletedAt = Date.now();
+    addForm.requestSubmit();
+    hardwareBarcodeInput = null;
+    hardwareBarcodeInputValue = '';
+    return true;
+};
+document.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter' || event.key === 'Tab') {
+        if (hardwareBarcodeBuffer.length >= 4 && Date.now() - hardwareBarcodeLastKeyAt <= 150) {
+            event.preventDefault();
+            event.stopPropagation();
+            submitHardwareBarcode();
+        } else if (Date.now() - hardwareBarcodeLastCompletedAt <= 300) {
+            event.preventDefault();
+            event.stopPropagation();
+        }
         return;
     }
     if (event.key.length !== 1 || event.ctrlKey || event.altKey || event.metaKey) {
@@ -655,12 +700,16 @@ document.addEventListener('keydown', (event) => {
         hardwareBarcodeBuffer = '';
         hardwareBarcodeInput = null;
     }
+    if (hardwareBarcodeTimer !== null) window.clearTimeout(hardwareBarcodeTimer);
     if (!hardwareBarcodeBuffer) {
         hardwareBarcodeInput = event.target instanceof HTMLInputElement ? event.target : null;
         hardwareBarcodeInputValue = hardwareBarcodeInput?.value ?? '';
     }
     hardwareBarcodeBuffer += event.key;
     hardwareBarcodeLastKeyAt = now;
+    if (hardwareBarcodeBuffer.length >= 4) {
+        hardwareBarcodeTimer = window.setTimeout(() => submitHardwareBarcode(true), 100);
+    }
 });
 document.querySelectorAll('.qty-form input[name="qty"]').forEach((input) => {
     input.addEventListener('change', () => {

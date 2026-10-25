@@ -1,5 +1,5 @@
 <?php
-require 'config.php'; wajib_login();
+require 'config.php'; hanya_admin();
 $formError = '';
 $formValues = [];
 $actionNotice = $_SERVER['REQUEST_METHOD'] === 'GET' ? ([
@@ -132,9 +132,12 @@ if ($_SERVER['REQUEST_METHOD']==='POST') {
         if(!in_array($satuan,$allowedUnits,true))$formError='Pilih satuan stok yang tersedia.';
         if($formError===''&&(!is_numeric($modalTotalRaw)||!is_finite($modalTotal)||$modalTotal<0))$formError='Masukkan total modal stok berupa angka yang valid dan tidak kurang dari 0.';
         if($formError===''&&$modalTotal>9999999999.99)$formError='Total modal stok melebihi batas yang diizinkan.';
+        $hargaBeli=$stok>0?round($modalTotal/$stok,2):0;
+        if($formError===''&&(!is_finite($hargaBeli)||$hargaBeli>9999999999.99))$formError='Harga beli rata-rata melebihi batas yang diizinkan.';
         if($formError===''&&$isKg&&(!is_numeric($stockRaw)||!is_numeric($hargaRaw)||!is_finite($stok)||!is_finite($harga)))$formError='Isi stok kg dan harga jual dengan angka yang valid.';
         if($formError===''&&$isPack&&$isiPerPack<1)$formError='Jumlah isi per '.$satuan.' minimal 1.';
         if($formError===''&&($stok<0||$stokPack<0||$stokLepas<0))$formError='Jumlah stok tidak boleh kurang dari 0.';
+        if($formError===''&&$stok>0&&$modalTotal<=0)$formError='Total modal stok harus lebih dari 0 agar HPP barang dapat dihitung.';
         if($formError===''&&$isKg&&(!is_finite($stok)||round($stok,3)!=$stok))$formError='Stok kilogram maksimal tiga angka desimal.';
         if($formError===''&&$isKg&&$harga<0)$formError='Harga jual tidak boleh kurang dari 0.';
         if($formError===''&&$stok>999999999.999)$formError='Jumlah stok melebihi batas yang diizinkan.';
@@ -173,12 +176,12 @@ if ($_SERVER['REQUEST_METHOD']==='POST') {
         if($formError===''){
             if($id){
                 if($imagePath){
-                    $stmt=$pdo->prepare("UPDATE products SET kode=?,barcode=?,barcode_pcs=?,nama=?,kategori=?,modal_total=?,harga=?,harga_pack=?,isi_per_pack=?,satuan_isi=?,stok=?,satuan=?,gambar=? WHERE id=?");$stmt->execute([$kode,$barcode?:null,$barcodePcs?:null,$nama,$kategori,$modalTotal,$harga,$hargaPack,$isiPerPack,$satuanIsi,$stok,$satuan,$imagePath,$id]);
+                    $stmt=$pdo->prepare("UPDATE products SET kode=?,barcode=?,barcode_pcs=?,nama=?,kategori=?,harga_beli=?,modal_total=?,harga=?,harga_pack=?,isi_per_pack=?,satuan_isi=?,stok=?,satuan=?,gambar=? WHERE id=?");$stmt->execute([$kode,$barcode?:null,$barcodePcs?:null,$nama,$kategori,$hargaBeli,$modalTotal,$harga,$hargaPack,$isiPerPack,$satuanIsi,$stok,$satuan,$imagePath,$id]);
                 }else{
-                    $stmt=$pdo->prepare("UPDATE products SET kode=?,barcode=?,barcode_pcs=?,nama=?,kategori=?,modal_total=?,harga=?,harga_pack=?,isi_per_pack=?,satuan_isi=?,stok=?,satuan=? WHERE id=?");$stmt->execute([$kode,$barcode?:null,$barcodePcs?:null,$nama,$kategori,$modalTotal,$harga,$hargaPack,$isiPerPack,$satuanIsi,$stok,$satuan,$id]);
+                    $stmt=$pdo->prepare("UPDATE products SET kode=?,barcode=?,barcode_pcs=?,nama=?,kategori=?,harga_beli=?,modal_total=?,harga=?,harga_pack=?,isi_per_pack=?,satuan_isi=?,stok=?,satuan=? WHERE id=?");$stmt->execute([$kode,$barcode?:null,$barcodePcs?:null,$nama,$kategori,$hargaBeli,$modalTotal,$harga,$hargaPack,$isiPerPack,$satuanIsi,$stok,$satuan,$id]);
                 }
             }else{
-                $stmt=$pdo->prepare("INSERT INTO products(kode,barcode,barcode_pcs,nama,kategori,modal_total,harga,harga_pack,isi_per_pack,satuan_isi,stok,satuan,gambar) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)");$stmt->execute([$kode,$barcode?:null,$barcodePcs?:null,$nama,$kategori,$modalTotal,$harga,$hargaPack,$isiPerPack,$satuanIsi,$stok,$satuan,$imagePath]);
+                $stmt=$pdo->prepare("INSERT INTO products(kode,barcode,barcode_pcs,nama,kategori,harga_beli,modal_total,harga,harga_pack,isi_per_pack,satuan_isi,stok,satuan,gambar) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)");$stmt->execute([$kode,$barcode?:null,$barcodePcs?:null,$nama,$kategori,$hargaBeli,$modalTotal,$harga,$hargaPack,$isiPerPack,$satuanIsi,$stok,$satuan,$imagePath]);
             }
             header('Location: products.php?notice='.($id?'updated':'created')); exit;
         }
@@ -438,6 +441,7 @@ let barcodeDetector = null;
 let scannerKeyBuffer = '';
 let scannerKeyTimeout = null;
 let scannerLastKeyTime = 0;
+let scannerLastCompletedAt = 0;
 let scannerInputSnapshot = null;
 let scannerTargetInput = barcodeInput;
 let cameraTargetInput = barcodeInput;
@@ -537,17 +541,22 @@ const finishKeyboardScan = () => {
     scannerTimeout = null;
     if (cameraStream) stopBarcodeCamera();
     showBarcodeNotice('Barcode diterima dari scanner.', 'success');
+    scannerLastCompletedAt = performance.now();
     scannerKeyBuffer = '';
     scannerInputSnapshot = null;
 };
 document.addEventListener('keydown', (event) => {
+    if (!productDialog.open) return;
     if (barcodeInput.disabled && barcodePcsInput.disabled) return;
     if (event.ctrlKey || event.altKey || event.metaKey) return;
-    if (event.key === 'Enter') {
+    if (event.key === 'Enter' || event.key === 'Tab') {
         if (scannerKeyBuffer.length >= 4 && performance.now() - scannerLastKeyTime <= 100) {
             event.preventDefault();
             event.stopPropagation();
             finishKeyboardScan();
+        } else if (performance.now() - scannerLastCompletedAt <= 300) {
+            event.preventDefault();
+            event.stopPropagation();
         }
         return;
     }
@@ -589,16 +598,11 @@ scanQrPcsButton.addEventListener('click', () => {
     if (cameraStream) stopBarcodeCamera();
     startBarcodeCamera(true, barcodePcsInput);
 });
-const setupBarcodeInput = (input, qrOnly) => {
+const setupBarcodeInput = (input) => {
 input.addEventListener('focus', () => {
-    if (input.value !== '' || cameraStream) return;
-    if (scannerTimeout !== null) clearTimeout(scannerTimeout);
-    scannerWaiting = true;
-    showBarcodeNotice('Siap menerima kode dari scanner. Arahkan scanner ke produk.', 'info');
-    scannerTimeout = setTimeout(() => {
-        scannerWaiting = false;
-        startBarcodeCamera(qrOnly, input);
-    }, 8000);
+    if (input.disabled) return;
+    scannerTargetInput = input;
+    showBarcodeNotice('Siap menerima kode. Arahkan alat scanner ke barcode produk.', 'info');
 });
 input.addEventListener('input', () => {
     if (input.value === '') return;
@@ -606,11 +610,10 @@ input.addEventListener('input', () => {
     if (scannerTimeout !== null) clearTimeout(scannerTimeout);
     scannerTimeout = null;
     if (cameraStream) stopBarcodeCamera();
-    showBarcodeNotice('Kode diterima.', 'success');
 });
 };
-setupBarcodeInput(barcodeInput, false);
-setupBarcodeInput(barcodePcsInput, true);
+setupBarcodeInput(barcodeInput);
+setupBarcodeInput(barcodePcsInput);
 productDialog.addEventListener('close', () => {
     scannerWaiting = false;
     if (scannerTimeout !== null) clearTimeout(scannerTimeout);
@@ -708,6 +711,11 @@ const togglePackFields = () => {
     packPriceInput.parentElement.hidden = !isPack;
     packPriceInput.disabled = !isPack;
     packPriceInput.required = isPack;
+    if (productDialog.open && barcodeInput.disabled && !barcodePcsInput.disabled) {
+        barcodePcsInput.focus();
+    } else if (productDialog.open && !barcodeInput.disabled) {
+        barcodeInput.focus();
+    }
 };
 stockUnitSelect.addEventListener('change', togglePackFields);
 packSizeInput.addEventListener('change', updateStockPiecesSummary);
@@ -778,6 +786,10 @@ document.getElementById('open-product-form').addEventListener('click', () => {
     toggleNewCategoryInput();
     updateStockPiecesSummary();
     productDialog.showModal();
+    if (!barcodeInput.disabled) {
+        barcodeInput.focus();
+        barcodeInput.select();
+    }
 });
 document.getElementById('close-product-form').addEventListener('click', () => productDialog.close());
 document.getElementById('cancel-product-form').addEventListener('click', () => productDialog.close());
@@ -823,6 +835,6 @@ deleteProductDialog.addEventListener('click', (event) => {
 productDialog.addEventListener('click', (event) => {
     if (event.target === productDialog) productDialog.close();
 });
-<?php if($edit||$formError!==''): ?>productDialog.showModal();<?php endif; ?>
+<?php if($edit||$formError!==''): ?>productDialog.showModal();if(!barcodeInput.disabled){barcodeInput.focus();barcodeInput.select();}<?php endif; ?>
 </script><?php endif; ?>
 <?php require 'includes/footer.php'; ?>

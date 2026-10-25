@@ -4,6 +4,7 @@ USE tokoku_kasir;
 SET FOREIGN_KEY_CHECKS=0;
 DROP TABLE IF EXISTS transaction_items;
 DROP TABLE IF EXISTS transactions;
+DROP TABLE IF EXISTS password_reset_tokens;
 DROP TABLE IF EXISTS promos;
 DROP TABLE IF EXISTS products;
 DROP TABLE IF EXISTS users;
@@ -13,9 +14,21 @@ CREATE TABLE users (
  id INT AUTO_INCREMENT PRIMARY KEY,
  nama VARCHAR(100) NOT NULL,
  username VARCHAR(50) NOT NULL UNIQUE,
+ email VARCHAR(254) NULL,
  password VARCHAR(255) NOT NULL,
  role ENUM('admin','kasir') NOT NULL DEFAULT 'kasir',
  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB;
+
+CREATE TABLE password_reset_tokens (
+ id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+ user_id INT NOT NULL,
+ token_hash CHAR(64) NOT NULL UNIQUE,
+ expires_at DATETIME NOT NULL,
+ created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+ used_at DATETIME NULL,
+ INDEX idx_password_reset_user_created (user_id, created_at),
+ CONSTRAINT fk_password_reset_user FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
 ) ENGINE=InnoDB;
 
 CREATE TABLE products (

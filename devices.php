@@ -1,15 +1,15 @@
 <?php
 require 'config.php';
-hanya_admin();
-$pageTitle = 'Kelola Perangkat';
+wajib_login();
+$pageTitle = 'Perangkat Kasir';
 $contentClass = 'devices-content';
 require 'includes/header.php';
 ?>
 <section class="panel devices-page">
     <div class="panel-head">
         <div>
-            <h3>Perangkat USB & Bluetooth</h3>
-            <p class="devices-description">Pilih perangkat untuk langsung mencoba menyambungkannya. Perangkat yang pernah diizinkan browser akan muncul di daftar.</p>
+            <h3>Scanner Barcode & Printer</h3>
+            <p class="devices-description">Cari dan sambungkan perangkat USB atau Bluetooth yang didukung browser. Scanner barcode mode keyboard umumnya dapat langsung digunakan tanpa konfigurasi tambahan.</p>
         </div>
         <div class="device-discovery-actions">
             <button type="button" class="btn blue" id="discoverBluetooth">＋ Cari Bluetooth</button>
@@ -17,7 +17,7 @@ require 'includes/header.php';
         </div>
     </div>
     <div class="alert info" id="deviceNotice" role="status" aria-live="polite">
-        USB yang sudah diizinkan dapat terdeteksi saat dicolok ketika halaman ini terbuka. Bluetooth harus dicari lewat tombol karena browser tidak mengizinkan pemindaian otomatis; dialog izin akan muncul saat mencari perangkat baru.
+        Perangkat yang sudah diizinkan browser akan muncul di daftar. Bluetooth harus dicari lewat tombol; browser akan menampilkan dialog izin. Koneksi berhasil belum tentu berarti printer bisa mencetak: komunikasi cetak bergantung pada dukungan browser dan protokol perangkat.
     </div>
     <div class="device-list" id="deviceList" aria-live="polite">
         <div class="empty">Memeriksa perangkat yang telah diizinkan...</div>
@@ -72,7 +72,7 @@ require 'includes/header.php';
         if (!devices.length) {
             const empty = document.createElement('div');
             empty.className = 'empty';
-            empty.textContent = 'Belum ada perangkat. Klik Cari Bluetooth atau Cari USB untuk memilih perangkat.';
+            empty.textContent = 'Belum ada perangkat. Klik Cari Bluetooth atau Cari USB untuk menyambungkan scanner atau printer yang didukung.';
             list.append(empty);
             return;
         }

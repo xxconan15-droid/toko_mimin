@@ -25,6 +25,38 @@ function ensure_transaction_status_column(PDO $pdo) {
     }
 }
 
+function ensure_password_reset_schema(PDO $pdo): void {
+    $emailColumn = $pdo->prepare("SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'users' AND COLUMN_NAME = 'email'");
+    $emailColumn->execute();
+    if (!(int)$emailColumn->fetchColumn()) {
+        $pdo->exec("ALTER TABLE users ADD COLUMN email VARCHAR(254) NULL AFTER username");
+    }
+
+    $pdo->exec("CREATE TABLE IF NOT EXISTS password_reset_tokens (
+        id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+        user_id INT NOT NULL,
+        token_hash CHAR(64) NOT NULL UNIQUE,
+        expires_at DATETIME NOT NULL,
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        used_at DATETIME NULL,
+        INDEX idx_password_reset_user_created (user_id, created_at),
+        CONSTRAINT fk_password_reset_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    ) ENGINE=InnoDB");
+}
+
+function csrf_token(): string {
+    if (empty($_SESSION['csrf_token'])) {
+        $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
+    }
+    return $_SESSION['csrf_token'];
+}
+
+function verify_csrf_token($token): bool {
+    return is_string($token)
+        && isset($_SESSION['csrf_token'])
+        && hash_equals($_SESSION['csrf_token'], $token);
+}
+
 function e($value) {
     return htmlspecialchars((string)$value, ENT_QUOTES, 'UTF-8');
 }

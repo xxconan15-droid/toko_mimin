@@ -90,7 +90,7 @@
             }, 400);
         }, 3000);
     };
-    document.querySelectorAll('.alert:not(#deviceNotice)').forEach((alert) => {
+    document.querySelectorAll('.alert:not(#deviceNotice):not([data-notification="false"])').forEach((alert) => {
         const type = alert.classList.contains('error') ? 'error' : 'success';
         const text = alert.textContent.trim();
         notification.dataset.refreshProducts = alert.dataset.refreshProducts === 'true' ? 'true' : 'false';
